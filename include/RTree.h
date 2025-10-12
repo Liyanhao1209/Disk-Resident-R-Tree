@@ -15,6 +15,7 @@
 
 #include "FileCache.h"
 #include "Node.h"
+#include "Type.h"
 
 namespace SpatialStorage {
     const uint64_t PAGE_UNIT = 0x1000;
@@ -28,13 +29,13 @@ namespace SpatialStorage {
     template<typename KeyT>
     class Context {
         public:
-            std::deque<NodeHandler<KeyT>> path;
+            std::deque<NodeHandler<RKeyType<KeyT>>> path;
     };
 
-    template<typename KeyT, typename ValueT>
+    template<typename KeyT>
     class RTree {
         public:
-            static RTree<KeyT,ValueT> create(
+            static RTree<KeyT> create(
                 int dir,
                 const char *name,
                 uint64_t key_size,
@@ -45,13 +46,13 @@ namespace SpatialStorage {
                 int index = openat(dir, name, O_RDWR | O_CREAT | O_EXCL,
                     S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH);  
                 if (index == -1)
-                    return RTree<KeyT,ValueT>{index,key_size,value_size,block_size,dimensions};
+                    return RTree<KeyT>{index,key_size,value_size,block_size,dimensions};
                 if (ftruncate(index, block_size) == -1) {
                     close(index);
-                    return RTree<KeyT,ValueT>{index,key_size,value_size,block_size,dimensions};
+                    return RTree<KeyT>{index,key_size,value_size,block_size,dimensions};
                 }
 
-                RTree<KeyT,ValueT> ret{index,key_size,value_size,block_size,dimensions};
+                RTree<KeyT> ret{index,key_size,value_size,block_size,dimensions};
 
                 if (ret.get_fd() != -1) {
                     ret->get_header() = IndexHeader {
@@ -66,7 +67,7 @@ namespace SpatialStorage {
                 return ret;
             }
 
-            static RTree<KeyT,ValueT> open(
+            static RTree<KeyT> open(
                 int dir,
                 const char *name,
                 uint64_t key_size,
@@ -76,7 +77,7 @@ namespace SpatialStorage {
             {
                 int index = openat(dir, name, O_RDWR);
                 if (index == -1)
-                    return RTree<KeyT,ValueT>{index,key_size,value_size,block_size,dimensions};
+                    return RTree<KeyT>{index,key_size,value_size,block_size,dimensions};
                 
                 if (ret.get_fd() != -1) {
                     auto header = ret.get_header();
@@ -87,7 +88,7 @@ namespace SpatialStorage {
                         header->block_size != block_size ||
                         header->Dimensions != dimensions
                     )
-                        return RTree<KeyT,ValueT>{index,key_size,value_size,block_size,dimensions};
+                        return RTree<KeyT>{index,key_size,value_size,block_size,dimensions};
                 }
 
                 return ret;
@@ -128,7 +129,7 @@ namespace SpatialStorage {
                 return index_header->root_addr;
             }
 
-            NodeHandler<KeyT> get_node_handler(uint64_t address) {
+            NodeHandler<RKeyType<KeyT>> get_node_handler(uint64_t address) {
                 NodeHeader *header = get_address<NodeHeader>(address);
 
                 return NodeHandler<KeyT>{header,key_size,value_size,block_size};
@@ -143,20 +144,18 @@ namespace SpatialStorage {
                 return block;
             }
             
-            
-
             void search(
-                KeyT key,
-                NodeHandler<KeyT> *handler,
+                const RKeyType<KeyT>& key,
+                NodeHandler<RKeyType<KeyT>> *handler,
                 std::vector<KeyValuePair<KeyT> *> res,
                 SearchMode mode) 
             {
                 auto entry_cnt = handler->get_count();
                     for(uint64_t i=0;i<entry_cnt;i++){
-                        auto mbr = handler->get_elem_key();
+                        RKeyType<KeyT> *mbr = handler->get_elem_key();
                         if (handler->IsLeafBlock){
                             if (
-                            (mode==SearchMode::overlap && !*mbr>key && !*mbr<key) ||
+                            (mode==SearchMode::overlap && *mbr.IsOverlap(key)) ||
                             (mode==SearchMode::comprise && *mbr>key)
                             ) {
                                 res.push_back(handler->get_elem_pair(i));
@@ -164,7 +163,7 @@ namespace SpatialStorage {
                         }
                         else{
                             if (
-                                (mode==SearchMode::overlap && !*mbr>key && !*mbr<key) ||
+                                (mode==SearchMode::overlap && *mbr.IsOverlap(key)) ||
                                 (mode==SearchMode::comprise && *mbr>key)
                             ) {
                                 auto next_addr = *reinterpret_cast<uint64_t *>(handler->get_elem_value(i))
@@ -175,6 +174,8 @@ namespace SpatialStorage {
                         
                     }
             }
+
+            NodeHandler<RKeyType<KeyT>> *ChooseLeaf()
 
         public:
             void overlap_search(KeyT key){
