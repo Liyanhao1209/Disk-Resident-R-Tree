@@ -13,8 +13,8 @@ namespace SpatialStorage {
 
     template <typename KeyT>
     struct KeyValuePair {
-        KeyT    key;
-        void    *value
+        KeyT            key;
+        const void      *value;
     };
 
     class IndexHeader {
@@ -39,6 +39,10 @@ namespace SpatialStorage {
             uint64_t    in_file_addr_{INVALID_ROOT_ADDR};
 
         public:
+            NodeHeader(BlockType blocktype,uint64_t entry_count,uint64_t in_file_addr)
+                :block_type_{blocktype}, entry_count_{entry_count}, in_file_addr_{in_file_addr}
+            {}
+
             auto GetEntryCount()->uint64_t { return entry_count_; }
             auto SetEntryCount(uint64_t entry_count)->void { entry_count_ = entry_count; }
             auto IsLeafBlock()->bool { return block_type_==BlockType::LeafBlock; }
@@ -62,6 +66,7 @@ namespace SpatialStorage {
             {}
 
             NodeHeader *get_header() {return header_;}
+            void set_header(NodeHeader* header) {header_ = header;}
 
             bool IsLeafBlock() { return header_->IsLeafBlock(); } 
             void SetBlockType(BlockType bt) {header_->SetBlockType(bt);}
@@ -75,10 +80,10 @@ namespace SpatialStorage {
             uint64_t get_pair_size() const { return key_size_+value_size_; }
 
             uint64_t get_entry_capacity() const {
-                (block_size_-sizeof(NodeHeader)) / get_pair_size();
+                return (block_size_-sizeof(NodeHeader)) / get_pair_size();
             }
 
-            bool is_full() { return header_->GetEntryCount() >= get_tot_entry_count(); }
+            bool is_full() { return header_->GetEntryCount() >= get_entry_capacity(); }
 
             KeyT *get_elem_key(uint64_t idx) {
                 void* res = nullptr;
@@ -98,7 +103,23 @@ namespace SpatialStorage {
 
             KeyValuePair<KeyT> *get_elem_pair(uint64_t idx) {
                 auto ptr = get_elem_ptr(idx);
-                return static_cast<const KeyValuePair<KeyT> *>(ptr);
+                return KeyValuePair<KeyT>{*get_elem_key(idx),get_elem_value(idx)};
+                // return static_cast<const KeyValuePair<KeyT> *>(ptr);
+            }
+
+            void insert(KeyValuePair<KeyT>& kvp) {
+                auto capacity = get_entry_capacity();
+                auto entry_count = get_count();
+                assert(entry_count<capacity);
+
+                auto new_kptr = get_elem_key(entry_count);
+                *new_kptr = kvp.key;
+                memcpy(reinterpret_cast<uint8_t*>(new_kptr)+sizeof(KeyT),kvp.value,value_size_);
+                set_count(entry_count+1);
+            }
+
+            void clear() {
+                set_count(0);
             }
     };
 }

@@ -55,13 +55,13 @@ namespace SpatialStorage {
                 RTree<KeyT> ret{index,key_size,value_size,block_size,dimensions};
 
                 if (ret.get_fd() != -1) {
-                    ret->get_header() = IndexHeader {
+                    *ret.get_header() = IndexHeader {
                         .Dimensions = dimensions,
                         .key_size = key_size,
                         .value_size = value_size,
                         .block_size = block_size,
                         .root_addr = INVALID_ROOT_ADDR,
-                    }
+                    };
                 }
 
                 return ret;
@@ -79,6 +79,7 @@ namespace SpatialStorage {
                 if (index == -1)
                     return RTree<KeyT>{index,key_size,value_size,block_size,dimensions};
                 
+                RTree<KeyT> ret{index,key_size,value_size,block_size,dimensions};
                 if (ret.get_fd() != -1) {
                     auto header = ret.get_header();
 
@@ -113,7 +114,7 @@ namespace SpatialStorage {
             }
             
             template<typename T = void> T *get_address(uint64_t address) {
-                auto ret = static_cast<T *>(index.get_block(address));
+                auto ret = static_cast<T *>(index_.get_block(address));
 
                 if (ret == nullptr) {
                     abort();
@@ -132,13 +133,13 @@ namespace SpatialStorage {
             NodeHandler<RKeyType<KeyT>> get_node_handler(uint64_t address) {
                 NodeHeader *header = get_address<NodeHeader>(address);
 
-                return NodeHandler<KeyT>{header,key_size,value_size,block_size};
+                return NodeHandler<KeyT>{header,key_size_,value_size_,block_size_};
             }
 
             // Allocate one new block.
             uint64_t allocate_block(){
-                uint64_t block = index.get_size();
-                if (!index.truncate(block + get_block_size())) {
+                uint64_t block = index_.get_size();
+                if (!index_.truncate(block + get_block_size())) {
                     abort();
                 }
                 return block;
@@ -147,18 +148,18 @@ namespace SpatialStorage {
             void search(
                 const RKeyType<KeyT>& key,
                 NodeHandler<RKeyType<KeyT>> *handler,
-                std::vector<KeyValuePair<KeyT> *> res,
+                std::vector<KeyValuePair<KeyT> *> *res,
                 SearchMode mode) 
             {
                 auto entry_cnt = handler->get_count();
                     for(uint64_t i=0;i<entry_cnt;i++){
-                        RKeyType<KeyT> *mbr = handler->get_elem_key();
-                        if (handler->IsLeafBlock){
+                        RKeyType<KeyT> *mbr = handler->get_elem_key(i);
+                        if (handler->IsLeafBlock()){
                             if (
                             (mode==SearchMode::overlap && *mbr.IsOverlap(key)) ||
                             (mode==SearchMode::comprise && *mbr>key)
                             ) {
-                                res.push_back(handler->get_elem_pair(i));
+                                res->push_back(handler->get_elem_pair(i));
                             }
                         }
                         else{
@@ -178,7 +179,7 @@ namespace SpatialStorage {
             NodeHandler<RKeyType<KeyT>> *ChooseLeaf(
                 const RKeyType<KeyT>& key,
                 NodeHandler<RKeyType<KeyT>>* handler,
-                Context<KeyT>* ctx,
+                Context<KeyT>* ctx
             ) {
                 ctx->path.push_back(handler);
 
@@ -205,17 +206,130 @@ namespace SpatialStorage {
                 return ChooseLeaf(key,&next_handler,ctx);
             }
 
-        public:
-            void overlap_search(const RKeyType<KeyT>& key){
-                std::vector<KeyValuePair<KeyT>> res;
-                auto root_handler = &get_node_handler(get_root_addr());
-                return search(&key,root_handler,res,SearchMode::overlap);
+            void split(Context<KeyT> *ctx,KeyValuePair<RKeyType<KeyT>>& kvp) {
+                NodeHandler<RKeyType<KeyT>> cur_handler = ctx->path.back();
+                ctx->path.pop_back();
+
+
+                // not full,install
+                if(!cur_handler.is_full()){
+                    cur_handler.insert(kvp);
+                }
+
+                // full,split
+
             }
 
-            void comprise_search(const RKeyType<KeyT>& key){
-                std::vector<KeyValuePair<KeyT>> res;
+            std::pair<
+                std::vector<KeyValuePair<RKeyType<KeyT>> *>, std::vector<KeyValuePair<RKeyType<KeyT>> *> >
+                pickseed(NodeHandler<RKeyType<KeyT>> *handler,KeyValuePair<RKeyType<KeyT>>& kvp){
+                    std::vector<KeyValuePair<RKeyType<KeyT>> *> whole;
+                    auto entry_count = handler->get_count();
+
+                    for(uint64_t i = 0;i<entry_count;i++){
+                        whole.push_back(handler->get_elem_pair(i));
+                    }
+
+                    whole.push_back(kvp);
+
+                    size_t partition1;
+                    size_t partition2;
+                    KeyT min_waste;
+
+                    for(size_t i=0;i<whole.size();i++){
+                        for(size_t j=i+1;j<whole.size();j++){
+                            RKeyType<KeyT> *mbr1 = whole[i]->key;
+                            RKeyType<KeyT> *mbr2 = whole[j]->key;
+
+                            KeyT waste = mbr1->enlargement(mbr2) - mbr1->area() - mbr2->area();
+                            if (i==0&&j==1 || waste<min_waste){
+                                min_waste = waste;
+                                partition1 = i;
+                                partition2 = j;
+                            }
+                        }
+                    }
+
+                    std::vector<KeyValuePair<RKeyType<KeyT>> *> res1;
+                    std::vector<KeyValuePair<RKeyType<KeyT>> *> res2;
+
+                    res1.push_back(whole[partition1]);
+                    res2.push_back(whole[partition2]);
+
+                    RKeyType<KeyT> mbr1(&res1[0]->key.data);
+                    RKeyType<KeyT> mbr2(&res2[0]->key.data);
+
+                    for(size_t i=0;i<whole.size();i++){
+                        if (i==partition1 || i==partition2){
+                            continue;
+                        }
+
+                        RKeyType<KeyT> *mbr = whole[i]->key;
+                        KeyT area = mbr->area();
+                        KeyT waste1 = mbr1.enlargement(mbr) - area - mbr1.area();
+                        KeyT waste2 = mbr2.enlargement(mbr) - area - mbr2.area();
+                        
+                        if (waste1<waste2){
+                            res1.push_back(whole[i]);
+                            mbr1.mbr_enlarge(mbr);
+                        }else {
+                            res2.push_back(whole[i]);
+                            mbr2.mbr_enlarge(mbr);
+                        }
+
+                    }
+
+                    return std::pair<
+                        std::vector<KeyValuePair<RKeyType<KeyT>> *>, 
+                        std::vector<KeyValuePair<RKeyType<KeyT>> *>
+                    > res(&res1,&res2);
+                }
+
+
+        public:
+            std::vector<KeyValuePair<KeyT>> *overlap_search(const RKeyType<KeyT>& key){
+                assert(key.size()==this->dimensions_);
+                std::vector<KeyValuePair<KeyT> *> res;
                 auto root_handler = &get_node_handler(get_root_addr());
-                return search(key,root_handler,res,SearchMode::comprise);
+                search(&key,root_handler,&res,SearchMode::overlap);
+
+                return &res;
+            }
+
+            std::vector<KeyValuePair<KeyT>> *comprise_search(const RKeyType<KeyT>& key){
+                assert(key.size()==this->dimensions_);
+                std::vector<KeyValuePair<KeyT> *> res;
+                auto root_handler = &get_node_handler(get_root_addr());
+                search(key,root_handler,res,SearchMode::comprise);
+
+                return &res;
+            }
+
+            void insert(KeyValuePair<RKeyType<KeyT>>& kvp) {
+                auto root_addr = get_root_addr();
+                // empty tree
+                if (root_addr == INVALID_ROOT_ADDR) {
+                    /**
+                     * allocate a new lbock
+                     * set the IndexHeader's root_addr to the new addr
+                     * init a Node Header,set its metadata
+                     * set the node header
+                     * insert the k/v pair
+                     */
+                    uint64_t new_addr = allocate_block();
+                    get_header()->root_addr = new_addr;
+
+                    NodeHandler<RKeyType<KeyT>> *root_handler = &get_node_handler(new_addr);
+                    NodeHeader root_header = NodeHeader{BlockType::LeafBlock,0,new_addr};
+                    root_handler->set_header(&root_header);
+
+                    root_handler->insert(kvp);
+                }
+                
+                Context<KeyT> ctx;
+                auto root_handler = get_node_handler(root_addr);
+                ChooseLeaf(kvp.key,&root_handler,&ctx);
+                
             }
     };
 }

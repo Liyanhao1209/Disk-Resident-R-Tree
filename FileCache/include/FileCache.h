@@ -42,13 +42,13 @@ class FileCache {
     }
 
     /// Get the block size used for cache.
-    u_int64_t get_block_size() const { return block_size; }
+    uint64_t get_block_size() const { return block_size; }
 
     /// The mask for in block offset
-    u_int64_t get_offset_mask() const { return get_block_size() - 1; }
+    uint64_t get_offset_mask() const { return get_block_size() - 1; }
 
     /// The mask for block address
-    u_int64_t get_addr_mask() const { return ~get_offset_mask(); }
+    uint64_t get_addr_mask() const { return ~get_offset_mask(); }
 
     /// Get the fd for the file cache, used to indicate whether the cache
     /// is sussesfully established.

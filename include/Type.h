@@ -33,6 +33,27 @@ namespace SpatialStorage {
             return res;
         }
 
+        T area() {
+            auto size = this->size();
+            T res = static_cast<T>(1);
+            for(size_t i=0,j=size/2;i<size/2 && j<size;i++,j++){
+                res *= this->data[j]-this->data[i];
+            }
+
+            return res;
+        }
+
+        void mbr_enlarge(const RKeyType<T>& other) {
+            assert(other.size()==this->size());
+            auto size = this->size();
+            for(size_t i=0;i<size/2;i++){
+                this->data[i] = min(this->data[i],other.data[i]);
+            }
+            for(size_t i=size/2;i<size;i++){
+                this->data[i] = max(this->data[i],other.data[i]);
+            }
+        }
+
         bool operator>=(const RKeyType<T>& other) const {
             assert(other.size()==this->size());
             
