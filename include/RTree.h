@@ -29,7 +29,7 @@ namespace SpatialStorage {
     template<typename KeyT>
     class Context {
         public:
-            std::deque<NodeHandler<RKeyType<KeyT>>> path;
+            std::deque<NodeHandler<RKeyType<KeyT>>*> path;
     };
 
     template<typename KeyT>
@@ -175,16 +175,44 @@ namespace SpatialStorage {
                     }
             }
 
-            NodeHandler<RKeyType<KeyT>> *ChooseLeaf()
+            NodeHandler<RKeyType<KeyT>> *ChooseLeaf(
+                const RKeyType<KeyT>& key,
+                NodeHandler<RKeyType<KeyT>>* handler,
+                Context<KeyT>* ctx,
+            ) {
+                ctx->path.push_back(handler);
 
-        public:
-            void overlap_search(KeyT key){
-                std::vector<KeyValuePair<KeyT>> res;
-                auto root_handler = &get_node_handler(get_root_addr());
-                return search(key,root_handler,res,SearchMode::overlap);
+                if (handler->IsLeafBlock()) {
+                    return handler;
+                }
+
+                KeyT *min_enlarge = nullptr;
+                uint64_t min_enlarge_index = 0;
+
+                auto entry_cnt = handler->get_count();
+                for (uint64_t i=0;i<entry_cnt;i++){
+                    RKeyType<KeyT> *mbr = handler->get_elem_key(i);
+                    KeyT enlarge = mbr->enlargement(key);
+                    if (min_enlarge==nullptr || enlarge < *min_enlarge) {
+                        min_enlarge = &enlarge;
+                        min_enlarge_index = i;
+                    }
+                }
+
+                auto next_addr = *reinterpret_cast<uint64_t *>(handler->get_elem_value(min_enlarge_index));
+                auto next_handler = get_node_handler(next_addr);
+
+                return ChooseLeaf(key,&next_handler,ctx);
             }
 
-            void comprise_search(KeyT key){
+        public:
+            void overlap_search(const RKeyType<KeyT>& key){
+                std::vector<KeyValuePair<KeyT>> res;
+                auto root_handler = &get_node_handler(get_root_addr());
+                return search(&key,root_handler,res,SearchMode::overlap);
+            }
+
+            void comprise_search(const RKeyType<KeyT>& key){
                 std::vector<KeyValuePair<KeyT>> res;
                 auto root_handler = &get_node_handler(get_root_addr());
                 return search(key,root_handler,res,SearchMode::comprise);
