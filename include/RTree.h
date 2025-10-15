@@ -209,6 +209,34 @@ namespace SpatialStorage {
 
                 return ChooseLeaf(key,&next_handler,ctx);
             }
+            
+            void modify_parent_entry_mbr(
+                Context<KeyT> *ctx,
+                RKeyType<KeyT>* modify_key
+            ) {
+                if (ctx->path.empty()){
+                    return;
+                }
+                std::pair<NodeHandler<RKeyType<KeyT>>*,uint64_t> handler_entry = ctx->path.back();
+                NodeHandler<RKeyType<KeyT>> *cur_handler = handler_entry.first;
+                uint64_t parent_entry_id = handler_entry.second;
+                ctx->path.pop_back();
+
+                RKeyType<KeyT> *new_modify_key = get_node_mbr(cur_handler);
+
+                modify_parent_entry_mbr(ctx,new_modify_key);
+            }
+
+            RKeyType<KeyT> *get_node_mbr(NodeHandler<RKeyType<KeyT>>* handler) {
+                RKeyType<KeyT> *first_key = cur_handler->get_elem_key(0);
+                RKeyType<KeyT> mbr(first_key->data);
+
+                for(uint64_t i=1;i<cur_handler->get_count();i++){
+                    mbr.mbr_enlarge(*cur_handler->get_elem_key(i));
+                }
+
+                return &mbr;
+            }
 
             void split(
                 Context<KeyT> *ctx,
@@ -226,6 +254,10 @@ namespace SpatialStorage {
                     if (modify_key!=nullptr){
                         cur_handler->set_elem_key(modify_key,parent_entry_id);
                     }
+                    modify_key = get_node_mbr(cur_handler); 
+                    
+                    // propagate till root
+                    modify_parent_entry_mbr(ctx,modify_key);
                 }
 
                 // full,split
@@ -378,6 +410,8 @@ namespace SpatialStorage {
                 
                 split(ctx,kvp);
             }
+
+
     };
 }
 
