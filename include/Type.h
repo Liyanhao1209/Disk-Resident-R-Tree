@@ -18,6 +18,7 @@ namespace SpatialStorage {
     template <typename T>
     class RKeyType : public virtual KeyType<T> {
     public:
+
         size_t size() const {
             return this->data.size();
         }

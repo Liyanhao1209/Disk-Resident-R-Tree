@@ -107,6 +107,11 @@ namespace SpatialStorage {
                 // return static_cast<const KeyValuePair<KeyT> *>(ptr);
             }
 
+            void set_elem_key(KeyT *modify_key,uint64_t idx) {
+                KeyT *key_ptr = get_elem_key(idx);
+                *key_ptr = *modify_key;
+            }
+
             void insert(KeyValuePair<KeyT>& kvp) {
                 auto capacity = get_entry_capacity();
                 auto entry_count = get_count();

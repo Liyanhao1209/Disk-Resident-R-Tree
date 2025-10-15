@@ -29,7 +29,7 @@ namespace SpatialStorage {
     template<typename KeyT>
     class Context {
         public:
-            std::deque<NodeHandler<RKeyType<KeyT>>*> path;
+            std::deque<std::pair<NodeHandler<RKeyType<KeyT>>*,uint64_t>> path;
     };
 
     template<typename KeyT>
@@ -181,9 +181,11 @@ namespace SpatialStorage {
                 NodeHandler<RKeyType<KeyT>>* handler,
                 Context<KeyT>* ctx
             ) {
-                ctx->path.push_back(handler);
+                
 
                 if (handler->IsLeafBlock()) {
+                    std::pair<NodeHandler<RKeyType<KeyT>>*,uint64_t> pth(handler,0);
+                    ctx->path.push_back(pth);
                     return handler;
                 }
 
@@ -199,29 +201,73 @@ namespace SpatialStorage {
                         min_enlarge_index = i;
                     }
                 }
-
+                
+                std::pair<NodeHandler<RKeyType<KeyT>>*,uint64_t> pth(handler,min_enlarge_index);
+                ctx->path.push_back(pth);
                 auto next_addr = *reinterpret_cast<uint64_t *>(handler->get_elem_value(min_enlarge_index));
                 auto next_handler = get_node_handler(next_addr);
 
                 return ChooseLeaf(key,&next_handler,ctx);
             }
 
-            void split(Context<KeyT> *ctx,KeyValuePair<RKeyType<KeyT>>& kvp) {
-                NodeHandler<RKeyType<KeyT>> cur_handler = ctx->path.back();
+            void split(
+                Context<KeyT> *ctx,
+                KeyValuePair<RKeyType<KeyT>>& insert_kvp,
+                RKeyType<KeyT>* modify_key = nullptr
+            ) {
+                std::pair<NodeHandler<RKeyType<KeyT>>*,uint64_t> handler_entry = ctx->path.back();
+                NodeHandler<RKeyType<KeyT>> *cur_handler = handler_entry.first;
+                uint64_t parent_entry_id = handler_entry.second;
                 ctx->path.pop_back();
 
-
-                // not full,install
-                if(!cur_handler.is_full()){
-                    cur_handler.insert(kvp);
+                // not full,install(maybe modify)
+                if(!cur_handler->is_full()){
+                    cur_handler->insert(kvp);
+                    if (modify_key!=nullptr){
+                        cur_handler->set_elem_key(modify_key,parent_entry_id);
+                    }
                 }
 
                 // full,split
+                auto new_addr = allocate_block();
+                NodeHeader *new_header = get_address<NodeHeader>(new_addr);
+
+                // set node header
+                BlockType block_type = cur_handler->IsLeafBlock()?BlockType::LeafBlock:BlockType::InnerBlock;
+                *new_header = NodeHeader{block_type,0,new_addr};
+                std::pair<
+                    std::vector<KeyValuePair<RKeyType<KeyT>> *>, 
+                    std::vector<KeyValuePair<RKeyType<KeyT>> *> 
+                > seed = pickseed(cur_handler,insert_kvp);
+                std::vector<KeyValuePair<RKeyType<KeyT>> *> partition1 = seed.first;
+                std::vector<KeyValuePair<RKeyType<KeyT>> *> partition2 = seed.second;
+                NodeHandler new_node_handler = get_node_handler(new_addr);
+
+                // insert k/v pair and maintain the mbr
+                RKeyType<KeyT> mbr1(*partition1[0]);
+                for(uint64_t i =0;i<partition1.size();i++){
+                    new_node_handler.insert(*partition1[i]);
+                    mbr1.mbr_enlarge(*partition1[i].key)
+                }
+
+                // reinsert the original node and maintain the modified mbr
+                cur_handler->clear();
+                RKeyType<KeyT> mbr2(*partition2[0]);
+                for(uint64_t i=0;i<partiton2.size();i++) {
+                    cur_handler->insert(*partition2[i]);
+                    mbr2.mbr_enlarge(*partition2[i].key);
+                }
+                
+                // traceback and adjust the tree
+                // insert the new mbr entry and modify the parent mbr entry
+                split(ctx,KeyValuePair{mbr1,&new_addr},&mbr2);
 
             }
 
             std::pair<
-                std::vector<KeyValuePair<RKeyType<KeyT>> *>, std::vector<KeyValuePair<RKeyType<KeyT>> *> >
+                std::vector<KeyValuePair<RKeyType<KeyT>> *>, 
+                std::vector<KeyValuePair<RKeyType<KeyT>> *> 
+            >
                 pickseed(NodeHandler<RKeyType<KeyT>> *handler,KeyValuePair<RKeyType<KeyT>>& kvp){
                     std::vector<KeyValuePair<RKeyType<KeyT>> *> whole;
                     auto entry_count = handler->get_count();
@@ -330,6 +376,7 @@ namespace SpatialStorage {
                 auto root_handler = get_node_handler(root_addr);
                 ChooseLeaf(kvp.key,&root_handler,&ctx);
                 
+                split(ctx,kvp);
             }
     };
 }
