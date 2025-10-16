@@ -1,5 +1,6 @@
 #include "FileCache.h"
 
+#include <cstdint>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <cassert>

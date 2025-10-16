@@ -1,6 +1,7 @@
 #ifndef FILE_CACHE_H
 #define FILE_CACHE_H
 
+#include <cstdint>
 #include <unordered_map>
 #include <sys/mman.h>
 #include <unistd.h>

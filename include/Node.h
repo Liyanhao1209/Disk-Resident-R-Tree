@@ -1,6 +1,7 @@
 #ifndef NODE_H
 #define NODE_H
 
+#include <cstdint>
 #include <iostream>
 #include <cassert>
 #include <sys/mman.h>
@@ -101,7 +102,7 @@ namespace SpatialStorage {
                 return reinterpret_cast<uint8_t *>(header_) + sizeof(NodeHeader) + idx * get_pair_size();
             }
 
-            KeyValuePair<KeyT> *get_elem_pair(uint64_t idx) {
+            KeyValuePair<KeyT> get_elem_pair(uint64_t idx) {
                 auto ptr = get_elem_ptr(idx);
                 return KeyValuePair<KeyT>{*get_elem_key(idx),get_elem_value(idx)};
                 // return static_cast<const KeyValuePair<KeyT> *>(ptr);
@@ -119,7 +120,7 @@ namespace SpatialStorage {
                     auto pre_key_ptr = get_elem_key(i-1);
                     memmove(
                         reinterpret_cast<uint8_t *>(pre_key_ptr),key_ptr,get_pair_size()
-                    )
+                    );
                 }
                 set_count(count);
             }
