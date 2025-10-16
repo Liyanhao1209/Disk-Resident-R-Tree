@@ -112,6 +112,18 @@ namespace SpatialStorage {
                 *key_ptr = *modify_key;
             }
 
+            void delete_elem_key(uint64_t idx){
+                auto count = get_count();
+                for(uint64_t i=idx+1;i<count;i++){
+                    auto key_ptr = get_elem_key(i);
+                    auto pre_key_ptr = get_elem_key(i-1);
+                    memmove(
+                        reinterpret_cast<uint8_t *>(pre_key_ptr),key_ptr,get_pair_size()
+                    )
+                }
+                set_count(count);
+            }
+
             void insert(KeyValuePair<KeyT>& kvp) {
                 auto capacity = get_entry_capacity();
                 auto entry_count = get_count();

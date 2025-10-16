@@ -209,6 +209,41 @@ namespace SpatialStorage {
 
                 return ChooseLeaf(key,&next_handler,ctx);
             }
+
+            NodeHandler<RKeyType<KeyT>> *FindLeaf(
+                Context<KeyT> *ctx,
+                NodeHandler<RKeyType<KeyT>> * cur_handler,
+                RKeyType<KeyT> *key
+            ) {
+                if (cur_handler->IsLeafBlock()) {
+                    for(uint64_t i=0;i<cur_handler->get_count();i++){
+                        if(*key==*cur_handler->get_elem_key(i)){
+                            std::pair<NodeHandler<RKeyType<KeyT>>*,uint64_t> pth(cur_handler,i);
+                            ctx->path.push_back(pth);
+                            return cur_handler;
+                        }
+                    }
+                    return nullptr;
+                }
+
+                for (uint64_t i=0;i<cur_handler->get_count();i++){
+                    if(*key>=*cur_handler->get_elem_key(i)){
+                        uint64_t next_addr = *reinterpret_cast<uint64_t *>(cur_handler->get_elem_value(i));
+                        NodeHandler<RKeyType<KeyT>> *next_node = &get_node_handler(next_addr);
+                        std::pair<NodeHandler<RKeyType<KeyT>>*,uint64_t> pth(cur_handler,i);
+                        ctx->path.push_back(pth);
+                        auto res = FindLeaf(ctx,next_node,key);
+                        if(res==nullptr){
+                            ctx->path.pop_back();
+                        }
+                        else{
+                            return res;
+                        }
+                    }
+                }
+
+                return nullptr;
+            }
             
             void modify_parent_entry_mbr(
                 Context<KeyT> *ctx,
@@ -222,6 +257,9 @@ namespace SpatialStorage {
                 uint64_t parent_entry_id = handler_entry.second;
                 ctx->path.pop_back();
 
+                if(modify_key!=nullptr){
+                    cur_handler->set_elem_key(modify_key,parent_entry_id);
+                }
                 RKeyType<KeyT> *new_modify_key = get_node_mbr(cur_handler);
 
                 modify_parent_entry_mbr(ctx,new_modify_key);
@@ -365,7 +403,7 @@ namespace SpatialStorage {
 
 
         public:
-            std::vector<KeyValuePair<KeyT>> *overlap_search(const RKeyType<KeyT>& key){
+            std::vector<KeyValuePair<KeyT>> *Overlap_Search(const RKeyType<KeyT>& key){
                 assert(key.size()==this->dimensions_);
                 std::vector<KeyValuePair<KeyT> *> res;
                 auto root_handler = &get_node_handler(get_root_addr());
@@ -374,7 +412,7 @@ namespace SpatialStorage {
                 return &res;
             }
 
-            std::vector<KeyValuePair<KeyT>> *comprise_search(const RKeyType<KeyT>& key){
+            std::vector<KeyValuePair<KeyT>> *Comprise_Search(const RKeyType<KeyT>& key){
                 assert(key.size()==this->dimensions_);
                 std::vector<KeyValuePair<KeyT> *> res;
                 auto root_handler = &get_node_handler(get_root_addr());
@@ -383,7 +421,7 @@ namespace SpatialStorage {
                 return &res;
             }
 
-            void insert(KeyValuePair<RKeyType<KeyT>>& kvp) {
+            void Insert(KeyValuePair<RKeyType<KeyT>>& kvp) {
                 auto root_addr = get_root_addr();
                 // empty tree
                 if (root_addr == INVALID_ROOT_ADDR) {
@@ -411,6 +449,24 @@ namespace SpatialStorage {
                 split(ctx,kvp);
             }
 
+
+            bool Delete(KeyValuePair<RKeyType<KeyT>>& kvp) {
+                Context<KeyT> ctx;
+                auto root_handler = &get_node_handler(get_root_addr());
+                NodeHandler<RKeyType<KeyT>> *target_leaf = FindLeaf(&ctx,root_handler,&kvp.key);
+
+                if (target_leaf==nullptr){
+                    return false;
+                }
+
+                std::pair<NodeHandler<RKeyType<KeyT>>*,uint64_t> handler_entry = ctx->path.back();
+                uint64_t parent_entry_id = handler_entry.second;
+                target_leaf->delete_elem_key(parent_entry_id);
+
+                modify_parent_entry_mbr(&ctx);
+
+                return true;
+            }
 
     };
 }
