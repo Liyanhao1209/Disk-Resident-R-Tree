@@ -64,8 +64,8 @@ namespace SpatialStorage {
             uint64_t    dimensions_;
 
         public:
-            NodeHandler(NodeHeader *header,size_t key_size,size_t value_size,size_t block_size)
-                : header_{header}, key_size_{key_size}, value_size_{value_size}, block_size_(block_size)
+            NodeHandler(NodeHeader *header,size_t key_size,size_t value_size,size_t block_size,size_t dimensions)
+                : header_{header}, key_size_{key_size}, value_size_{value_size}, block_size_(block_size),dimensions_(dimensions)
             {}
 
             NodeHeader *get_header() {return header_;}
@@ -92,14 +92,13 @@ namespace SpatialStorage {
                 assert(idx < get_count());
     
                 uint8_t *elem_ptr = reinterpret_cast<uint8_t *>(header_) + 
-                                sizeof(NodeHeader) + 
-                                idx * get_pair_size();
+                                    sizeof(NodeHeader) + 
+                                    idx * get_pair_size();
                 
-                uint64_t dimensions = *reinterpret_cast<uint64_t*>(elem_ptr);
+                KeyT *data_ptr = reinterpret_cast<KeyT*>(elem_ptr); 
                 
-                KeyT *data_ptr = reinterpret_cast<KeyT*>(elem_ptr + sizeof(uint64_t));
-                std::vector<KeyT> data(dimensions);
-                for (uint64_t i = 0; i < dimensions; ++i) {
+                std::vector<KeyT> data(dimensions_ * 2);
+                for (uint64_t i = 0; i < dimensions_ * 2; ++i) {
                     data[i] = data_ptr[i];
                 }
                 
@@ -125,50 +124,50 @@ namespace SpatialStorage {
             void set_elem_key(KeyType<KeyT> *modify_key,uint64_t idx) {
                 assert(idx < get_count());
                 assert(modify_key != nullptr);
+                assert(modify_key->size() == dimensions_ * 2);
                 
                 uint8_t *elem_ptr = reinterpret_cast<uint8_t *>(header_) + 
-                                sizeof(NodeHeader) + 
-                                idx * get_pair_size();
+                                    sizeof(NodeHeader) + 
+                                    idx * get_pair_size();
 
-                uint64_t *dimensions_ptr = reinterpret_cast<uint64_t *>(elem_ptr);
-                *dimensions_ptr = modify_key->size();
-                
-                KeyT *data_ptr = reinterpret_cast<KeyT *>(elem_ptr + sizeof(uint64_t));
-                for (size_t i = 0; i <modify_key->size(); ++i) {
+                KeyT *data_ptr = reinterpret_cast<KeyT *>(elem_ptr);
+                for (size_t i = 0; i < dimensions_ * 2; ++i) {
                     data_ptr[i] = (*modify_key)[i];
                 }
             }
 
             void delete_elem_key(uint64_t idx){
                 auto count = get_count();
-                for(uint64_t i=idx+1;i<count;i++){
-                    auto key_ptr = get_elem_key(i);
-                    auto pre_key_ptr = get_elem_key(i-1);
-                    memmove(
-                        reinterpret_cast<uint8_t *>(&pre_key_ptr),&key_ptr,get_pair_size()
-                    );
+                if (idx >= count) return;
+                
+                uint8_t* dest_ptr = reinterpret_cast<uint8_t*>(header_) + 
+                                sizeof(NodeHeader) + idx * get_pair_size();
+                uint8_t* src_ptr = dest_ptr + get_pair_size();
+                size_t move_size = (count - idx - 1) * get_pair_size();
+                
+                if (move_size > 0) {
+                    memmove(dest_ptr, src_ptr, move_size);
                 }
-                set_count(count-1);
+                
+                set_count(count - 1);
             }
 
             void insert(KeyValuePair<KeyType<KeyT>>& kvp) {
                 auto capacity = get_entry_capacity();
                 auto entry_count = get_count();
                 assert(entry_count < capacity);
+                assert(kvp.key.size() == dimensions_ * 2);
                 
                 uint8_t *insert_ptr = reinterpret_cast<uint8_t *>(header_) + 
                                     sizeof(NodeHeader) + 
                                     entry_count * get_pair_size();
 
-                uint64_t *dimensions_ptr = reinterpret_cast<uint64_t *>(insert_ptr);
-                *dimensions_ptr = kvp.key.size();
-                
-                KeyT *data_ptr = reinterpret_cast<KeyT *>(insert_ptr + sizeof(uint64_t));
-                for (size_t i = 0; i < kvp.key.size(); ++i) {
-                    data_ptr[i] =kvp.key[i];
+                KeyT *data_ptr = reinterpret_cast<KeyT *>(insert_ptr);
+                for (size_t i = 0; i < dimensions_ * 2; ++i) {
+                    data_ptr[i] = kvp.key[i];
                 }
                 
-                uint8_t *value_ptr = insert_ptr + key_size_;
+                uint8_t *value_ptr = insert_ptr + (dimensions_ * 2 * sizeof(KeyT));
                 if (value_size_ > 0 && kvp.value != nullptr) {
                     memcpy(value_ptr, kvp.value, value_size_);
                 }
