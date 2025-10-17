@@ -36,7 +36,7 @@ enum class Operation {
 // 测试数据条目
 struct TestData {
     Operation op;
-    RKeyType<double> key;
+    KeyType<double> key;
     uint64_t value;
     
     TestData(Operation o, const std::vector<double>& k, uint64_t v = 0)
@@ -46,10 +46,10 @@ struct TestData {
 // 暴力搜索实现（用于对拍）
 class BruteForceSearch {
 private:
-    std::vector<std::pair<RKeyType<double>, uint64_t>> data;
+    std::vector<std::pair<KeyType<double>, uint64_t>> data;
     
 public:
-    void insert(const RKeyType<double>& key, uint64_t value) {
+    void insert(const KeyType<double>& key, uint64_t value) {
         // 检查是否已存在
         for (auto& item : data) {
             if (item.first == key) {
@@ -60,7 +60,7 @@ public:
         data.emplace_back(key, value);
     }
     
-    bool remove(const RKeyType<double>& key) {
+    bool remove(const KeyType<double>& key) {
         for (auto it = data.begin(); it != data.end(); ++it) {
             if (it->first == key) {
                 data.erase(it);
@@ -70,8 +70,8 @@ public:
         return false;
     }
     
-    std::vector<std::pair<RKeyType<double>, uint64_t>> overlap_search(const RKeyType<double>& query) {
-        std::vector<std::pair<RKeyType<double>, uint64_t>> result;
+    std::vector<std::pair<KeyType<double>, uint64_t>> overlap_search(const KeyType<double>& query) {
+        std::vector<std::pair<KeyType<double>, uint64_t>> result;
         for (const auto& item : data) {
             if (item.first.IsOverlap(query)) {
                 result.push_back(item);
@@ -80,8 +80,8 @@ public:
         return result;
     }
     
-    std::vector<std::pair<RKeyType<double>, uint64_t>> comprise_search(const RKeyType<double>& query) {
-        std::vector<std::pair<RKeyType<double>, uint64_t>> result;
+    std::vector<std::pair<KeyType<double>, uint64_t>> comprise_search(const KeyType<double>& query) {
+        std::vector<std::pair<KeyType<double>, uint64_t>> result;
         for (const auto& item : data) {
             if (query >= item.first) { // query包含item.key
                 result.push_back(item);
@@ -172,32 +172,46 @@ std::vector<TestData> read_test_data_from_file(const std::string& filename, int 
 
 // 比较两个结果集是否相等
 bool compare_results(
-    const std::vector<std::pair<RKeyType<double>, uint64_t>>& brute_force_result,
-    const std::vector<KeyValuePair<RKeyType<double>>*>& rtree_result) 
+    const std::vector<std::pair<KeyType<double>, uint64_t>>& brute_force_result,
+    const std::vector<KeyValuePair<KeyType<double>>*>& rtree_result) 
 {
     if (brute_force_result.size() != rtree_result.size()) {
         return false;
     }
     
-    // 由于顺序可能不同，需要排序后比较
-    auto bf_sorted = brute_force_result;
-    auto rt_sorted = rtree_result;
+    // 创建可排序的副本
+    std::vector<std::pair<KeyType<double>, uint64_t>> bf_sorted = brute_force_result;
+    std::vector<KeyValuePair<KeyType<double>>*> rt_sorted = rtree_result;
     
-    // 按key排序 - 使用具体类型而不是auto
+    // 按key的字符串表示排序（简单实现）
+    auto key_to_string = [](const KeyType<double>& key) {
+        std::string result;
+        const auto& data = key.getData();
+        for (const auto& val : data) {
+            result += std::to_string(val) + ",";
+        }
+        return result;
+    };
+    
+    // 修复lambda参数类型
     std::sort(bf_sorted.begin(), bf_sorted.end(), 
-              [](const std::pair<RKeyType<double>, uint64_t>& a, 
-                 const std::pair<RKeyType<double>, uint64_t>& b) { 
-                  return a.first.data < b.first.data; 
+              [&](const std::pair<KeyType<double>, uint64_t>& a, 
+                  const std::pair<KeyType<double>, uint64_t>& b) { 
+                  return key_to_string(a.first) < key_to_string(b.first); 
               });
+    
     std::sort(rt_sorted.begin(), rt_sorted.end(), 
-              [](const KeyValuePair<RKeyType<double>>* a, 
-                 const KeyValuePair<RKeyType<double>>* b) { 
-                  return a->key.data < b->key.data; 
+              [&](KeyValuePair<KeyType<double>>* a, 
+                  KeyValuePair<KeyType<double>>* b) { 
+                  return key_to_string(a->key) < key_to_string(b->key); 
               });
     
     for (size_t i = 0; i < bf_sorted.size(); ++i) {
-        if (bf_sorted[i].first != rt_sorted[i]->key || 
-            bf_sorted[i].second != *reinterpret_cast<const uint64_t*>(rt_sorted[i]->value)) {
+        if (bf_sorted[i].first != rt_sorted[i]->key) {
+            return false;
+        }
+        // 比较值
+        if (bf_sorted[i].second != *reinterpret_cast<const uint64_t*>(rt_sorted[i]->value)) {
             return false;
         }
     }
@@ -226,14 +240,14 @@ void run_test(const TestConfig& config) {
         test_data = generate_test_data(config.test_count, config.dimensions);
     }
     
-    std::cout<<"初始化对拍..." << std::endl;
+    std::cout << "初始化对拍..." << std::endl;
     // 创建R树和暴力搜索
     auto rtree = RTree<double>::create(AT_FDCWD, "test_rtree.index", 
                                       config.key_size, config.value_size,
                                       config.block_size, config.dimensions);
     
     BruteForceSearch brute_force;
-    std::cout<<"对拍初始化完成" << std::endl;
+    std::cout << "对拍初始化完成" << std::endl;
     
     // 统计信息
     int success_count = 0;
@@ -251,14 +265,15 @@ void run_test(const TestConfig& config) {
         switch (data.op) {
             case Operation::INSERT: {
                 std::cout << "INSERT ";
-                for (double coord : data.key.data) {
+                const auto& key_data = data.key.getData();
+                for (double coord : key_data) {
                     std::cout << coord << " ";
                 }
                 std::cout << "value=" << data.value;
                 
-                // R树插入
+                // R树插入 - 使用正确的模板参数
                 auto start = std::chrono::high_resolution_clock::now();
-                KeyValuePair<RKeyType<double>> kvp{data.key, reinterpret_cast<const void*>(&data.value)};
+                KeyValuePair<KeyType<double>> kvp{data.key, reinterpret_cast<const void*>(&data.value)};
                 rtree.Insert(kvp);
                 auto end = std::chrono::high_resolution_clock::now();
                 double rtree_time = std::chrono::duration<double, std::milli>(end - start).count();
@@ -278,13 +293,14 @@ void run_test(const TestConfig& config) {
             
             case Operation::DELETE: {
                 std::cout << "DELETE ";
-                for (double coord : data.key.data) {
+                const auto& key_data = data.key.getData();
+                for (double coord : key_data) {
                     std::cout << coord << " ";
                 }
                 
-                // R树删除
+                // R树删除 - 使用正确的模板参数
                 auto start = std::chrono::high_resolution_clock::now();
-                KeyValuePair<RKeyType<double>> kvp{data.key, nullptr};
+                KeyValuePair<KeyType<double>> kvp{data.key, nullptr};
                 bool rtree_result = rtree.Delete(kvp);
                 auto end = std::chrono::high_resolution_clock::now();
                 double rtree_time = std::chrono::duration<double, std::milli>(end - start).count();
@@ -311,7 +327,8 @@ void run_test(const TestConfig& config) {
             
             case Operation::OVERLAP_SEARCH: {
                 std::cout << "OVERLAP_SEARCH ";
-                for (double coord : data.key.data) {
+                const auto& key_data = data.key.getData();
+                for (double coord : key_data) {
                     std::cout << coord << " ";
                 }
                 
@@ -331,8 +348,8 @@ void run_test(const TestConfig& config) {
                 total_brute_force_time += bf_time;
                 
                 // 检查结果一致性
-                if (!compare_results(bf_result, rtree_result)) {  // 移除解引用
-                    std::cout << " - 错误: 搜索结果不一致 (R树找到 " << rtree_result.size()  // 使用 .size()
+                if (!compare_results(bf_result, rtree_result)) {
+                    std::cout << " - 错误: 搜索结果不一致 (R树找到 " << rtree_result.size()
                               << " 个, 暴力找到 " << bf_result.size() << " 个)";
                     success = false;
                 } else {
@@ -344,7 +361,8 @@ void run_test(const TestConfig& config) {
             
             case Operation::COMPRISE_SEARCH: {
                 std::cout << "COMPRISE_SEARCH ";
-                for (double coord : data.key.data) {
+                const auto& key_data = data.key.getData();
+                for (double coord : key_data) {
                     std::cout << coord << " ";
                 }
                 
@@ -364,8 +382,8 @@ void run_test(const TestConfig& config) {
                 total_brute_force_time += bf_time;
                 
                 // 检查结果一致性
-                if (!compare_results(bf_result, rtree_result)) {  // 移除解引用
-                    std::cout << " - 错误: 搜索结果不一致 (R树找到 " << rtree_result.size()  // 使用 .size()
+                if (!compare_results(bf_result, rtree_result)) {
+                    std::cout << " - 错误: 搜索结果不一致 (R树找到 " << rtree_result.size()
                               << " 个, 暴力找到 " << bf_result.size() << " 个)";
                     success = false;
                 } else {

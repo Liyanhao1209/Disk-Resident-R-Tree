@@ -8,6 +8,8 @@
 #include <unistd.h>
 #include <cstring>
 
+#include "Type.h"
+
 namespace SpatialStorage {
 
     const uint64_t INVALID_ROOT_ADDR = 0;
@@ -86,11 +88,22 @@ namespace SpatialStorage {
 
             bool is_full() { return header_->GetEntryCount() >= get_entry_capacity(); }
 
-            KeyT *get_elem_key(uint64_t idx) {
-                void* res = nullptr;
-                res = reinterpret_cast<uint8_t*>(header_) + sizeof(NodeHeader) + idx * get_pair_size();
-
-                return reinterpret_cast<KeyT *>(res);
+            KeyType<KeyT> get_elem_key(uint64_t idx) {
+                assert(idx < get_count());
+    
+                uint8_t *elem_ptr = reinterpret_cast<uint8_t *>(header_) + 
+                                sizeof(NodeHeader) + 
+                                idx * get_pair_size();
+                
+                uint64_t dimensions = *reinterpret_cast<uint64_t*>(elem_ptr);
+                
+                KeyT *data_ptr = reinterpret_cast<KeyT*>(elem_ptr + sizeof(uint64_t));
+                std::vector<KeyT> data(dimensions);
+                for (uint64_t i = 0; i < dimensions; ++i) {
+                    data[i] = data_ptr[i];
+                }
+                
+                return KeyType<KeyT>(data);
             }
 
             void *get_elem_value(uint64_t idx) {
@@ -102,15 +115,28 @@ namespace SpatialStorage {
                 return reinterpret_cast<uint8_t *>(header_) + sizeof(NodeHeader) + idx * get_pair_size();
             }
 
-            KeyValuePair<KeyT> get_elem_pair(uint64_t idx) {
-                auto ptr = get_elem_ptr(idx);
-                return KeyValuePair<KeyT>{*get_elem_key(idx),get_elem_value(idx)};
-                // return static_cast<const KeyValuePair<KeyT> *>(ptr);
+            KeyValuePair<KeyType<KeyT>> get_elem_pair(uint64_t idx) {
+                KeyValuePair<KeyType<KeyT>> pair;
+                pair.key = get_elem_key(idx);
+                pair.value = get_elem_value(idx);
+                return pair;
             }
 
-            void set_elem_key(KeyT *modify_key,uint64_t idx) {
-                KeyT *key_ptr = get_elem_key(idx);
-                *key_ptr = *modify_key;
+            void set_elem_key(KeyType<KeyT> *modify_key,uint64_t idx) {
+                assert(idx < get_count());
+                assert(modify_key != nullptr);
+                
+                uint8_t *elem_ptr = reinterpret_cast<uint8_t *>(header_) + 
+                                sizeof(NodeHeader) + 
+                                idx * get_pair_size();
+
+                uint64_t *dimensions_ptr = reinterpret_cast<uint64_t *>(elem_ptr);
+                *dimensions_ptr = modify_key->size();
+                
+                KeyT *data_ptr = reinterpret_cast<KeyT *>(elem_ptr + sizeof(uint64_t));
+                for (size_t i = 0; i <modify_key->size(); ++i) {
+                    data_ptr[i] = (*modify_key)[i];
+                }
             }
 
             void delete_elem_key(uint64_t idx){
@@ -119,21 +145,35 @@ namespace SpatialStorage {
                     auto key_ptr = get_elem_key(i);
                     auto pre_key_ptr = get_elem_key(i-1);
                     memmove(
-                        reinterpret_cast<uint8_t *>(pre_key_ptr),key_ptr,get_pair_size()
+                        reinterpret_cast<uint8_t *>(&pre_key_ptr),&key_ptr,get_pair_size()
                     );
                 }
-                set_count(count);
+                set_count(count-1);
             }
 
-            void insert(KeyValuePair<KeyT>& kvp) {
+            void insert(KeyValuePair<KeyType<KeyT>>& kvp) {
                 auto capacity = get_entry_capacity();
                 auto entry_count = get_count();
-                assert(entry_count<capacity);
+                assert(entry_count < capacity);
+                
+                uint8_t *insert_ptr = reinterpret_cast<uint8_t *>(header_) + 
+                                    sizeof(NodeHeader) + 
+                                    entry_count * get_pair_size();
 
-                auto new_kptr = get_elem_key(entry_count);
-                *new_kptr = kvp.key;
-                memcpy(reinterpret_cast<uint8_t*>(new_kptr)+sizeof(KeyT),kvp.value,value_size_);
-                set_count(entry_count+1);
+                uint64_t *dimensions_ptr = reinterpret_cast<uint64_t *>(insert_ptr);
+                *dimensions_ptr = kvp.key.size();
+                
+                KeyT *data_ptr = reinterpret_cast<KeyT *>(insert_ptr + sizeof(uint64_t));
+                for (size_t i = 0; i < kvp.key.size(); ++i) {
+                    data_ptr[i] =kvp.key[i];
+                }
+                
+                uint8_t *value_ptr = insert_ptr + key_size_;
+                if (value_size_ > 0 && kvp.value != nullptr) {
+                    memcpy(value_ptr, kvp.value, value_size_);
+                }
+                
+                set_count(entry_count + 1);
             }
 
             void clear() {
