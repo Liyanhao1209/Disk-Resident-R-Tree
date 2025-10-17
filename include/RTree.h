@@ -116,6 +116,21 @@ namespace SpatialStorage {
                 assert(block_size>0 && block_size % PAGE_UNIT == 0);
             }
 
+            void collect_leaf_entries(NodeHandler<KeyT>* handler, 
+                             std::vector<KeyValuePair<KeyType<KeyT>>>& entries) {
+                if (handler->IsLeafBlock()) {
+                    for (uint64_t i = 0; i < handler->get_count(); ++i) {
+                        entries.push_back(handler->get_elem_pair(i));
+                    }
+                } else {
+                    for (uint64_t i = 0; i < handler->get_count(); ++i) {
+                        auto child_addr = *reinterpret_cast<uint64_t*>(handler->get_elem_value(i));
+                        auto child_handler = get_node_handler(child_addr);
+                        collect_leaf_entries(&child_handler, entries);
+                    }
+                }
+            }
+
             void print_node_recursive(NodeHandler<KeyT>* handler, int depth) {
                 std::string indent(depth * 2, ' ');
                 
@@ -582,6 +597,19 @@ namespace SpatialStorage {
                 std::cout << "R-Tree Structure:" << std::endl;
                 std::cout << "=================" << std::endl;
                 print_node_recursive(&root_handler, 0);
+            }
+
+            std::vector<KeyValuePair<KeyType<KeyT>>> GetAllEntries() {
+                std::vector<KeyValuePair<KeyType<KeyT>>> all_entries;
+                auto root_addr = get_root_addr();
+                
+                if (root_addr == INVALID_ROOT_ADDR) {
+                    return all_entries;
+                }
+                
+                auto root_handler = get_node_handler(root_addr);
+                collect_leaf_entries(&root_handler, all_entries);
+                return all_entries;
             }
     };
 }

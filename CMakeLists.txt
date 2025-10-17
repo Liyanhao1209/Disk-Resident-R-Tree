@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15)
 project(SpatialStorage CXX)
 
 # 设置C++标准
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)  # 改为17，因为SFML需要C++17
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 设置编译选项
@@ -11,6 +11,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 else()
     add_compile_options(-O2 -DNDEBUG)
 endif()
+
+# 查找SFML库
+find_package(SFML 2.5 COMPONENTS graphics window system REQUIRED)
 
 # 添加FileCache子目录
 add_subdirectory(FileCache)
@@ -43,4 +46,18 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test.cpp")
     add_test(NAME SpatialStorageTest 
              COMMAND SpatialStorageTest
              WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endif()
+
+# 可视化Demo程序
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/visual.cpp")
+    add_executable(VisualDemo visual.cpp)
+    target_link_libraries(VisualDemo SpatialStorage FileCache sfml-graphics sfml-window sfml-system)
+    set_target_properties(VisualDemo PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+    
+    # 在Linux上可能需要链接pthread
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(VisualDemo pthread)
+    endif()
 endif()
