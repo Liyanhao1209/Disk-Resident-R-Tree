@@ -12,7 +12,6 @@
 
 using namespace SpatialStorage;
 
-// 操作类型
 enum class OperationType {
     INSERT,
     DELETE,
@@ -20,17 +19,15 @@ enum class OperationType {
     COMPRISE_SEARCH
 };
 
-// 操作命令
 struct Operation {
     OperationType type;
-    std::vector<double> key_data;  // MBR坐标 [x1, y1, x2, y2, ...]
+    std::vector<double> key_data;  
     uint64_t value;
     
     Operation(OperationType t, const std::vector<double>& data, uint64_t v = 0)
         : type(t), key_data(data), value(v) {}
 };
 
-// 读取操作文件
 std::vector<Operation> read_operations(const std::string& filename) {
     std::vector<Operation> operations;
     std::ifstream file(filename);
@@ -61,12 +58,11 @@ std::vector<Operation> read_operations(const std::string& filename) {
         
         uint64_t value = 0;
         if (op_type == OperationType::INSERT && key_data.size() >= 4) {
-            // 最后一个数字作为value
             value = static_cast<uint64_t>(key_data.back());
             key_data.pop_back();
         }
         
-        if (key_data.size() >= 4) {  // 至少需要4个坐标（2D MBR）
+        if (key_data.size() >= 4) {  
             operations.emplace_back(op_type, key_data, value);
         }
     }
@@ -74,34 +70,31 @@ std::vector<Operation> read_operations(const std::string& filename) {
     return operations;
 }
 
-// 可视化应用类
 class RTreeVisualizer {
 private:
     sf::RenderWindow window;
     std::vector<Operation> operations;
     size_t current_op_index;
-    RTree<double> rtree;
-    std::vector<KeyValuePair<KeyType<double>>> current_search_results;
+    RTree<double, uint64_t> rtree;
+    std::vector<KeyValuePair<KeyType<double>, uint64_t>> current_search_results;
     KeyType<double> current_search_range;
     bool has_search;
     
-    // 颜色定义
     const sf::Color BG_COLOR = sf::Color::White;
     const sf::Color MBR_COLOR = sf::Color::Blue;
     const sf::Color SEARCH_RESULT_COLOR = sf::Color::Red;
-    const sf::Color SEARCH_RANGE_COLOR = sf::Color(255, 165, 0, 128); // 半透明橙色
+    const sf::Color SEARCH_RANGE_COLOR = sf::Color(255, 165, 0, 128); 
     const sf::Color TEXT_COLOR = sf::Color::Black;
     
-    // 坐标变换参数
     const float PADDING = 50.0f;
-    const float WORLD_SIZE = 100.0f;  // 假设坐标范围是[0, 100]
+    const float WORLD_SIZE = 100.0f;  
     
 public:
     RTreeVisualizer(const std::string& op_file)
         : window(sf::VideoMode(1200, 800), "R-Tree Visual Demo"),
           operations(read_operations(op_file)),
           current_op_index(0),
-          rtree(RTree<double>::create(AT_FDCWD, "visual_demo.index", 
+          rtree(RTree<double, uint64_t>::create(AT_FDCWD, "visual_demo.index", 
                                     4 * sizeof(double), sizeof(uint64_t), 
                                     4096, 2)),
           has_search(false)
@@ -119,7 +112,6 @@ public:
             render();
         }
         
-        // 清理临时文件
         unlink("visual_demo.index");
     }
     
@@ -161,8 +153,7 @@ private:
                 }
                 std::cout << "], value=" << op.value << std::endl;
                 
-                KeyValuePair<KeyType<double>> kvp{KeyType<double>(op.key_data), 
-                                                 reinterpret_cast<const void*>(&op.value)};
+                KeyValuePair<KeyType<double>, uint64_t> kvp{KeyType<double>(op.key_data), op.value};
                 rtree.Insert(kvp);
                 break;
             }
@@ -175,7 +166,7 @@ private:
                 }
                 std::cout << "]" << std::endl;
                 
-                KeyValuePair<KeyType<double>> kvp{KeyType<double>(op.key_data), nullptr};
+                KeyValuePair<KeyType<double>, uint64_t> kvp{KeyType<double>(op.key_data), 0};
                 rtree.Delete(kvp);
                 break;
             }
@@ -217,33 +208,28 @@ private:
     void render() {
         window.clear(BG_COLOR);
         
-        // 绘制搜索范围（如果有）
         if (has_search) {
             drawSearchRange();
         }
         
-        // 绘制所有MBR
         drawAllMBRs();
-        
-        // 绘制搜索结果的MBR（如果有）
+
         if (has_search) {
             drawSearchResults();
         }
         
-        // 绘制状态信息
         drawStatusInfo();
         
         window.display();
     }
-    
-    // 坐标变换：世界坐标 -> 屏幕坐标
+
     sf::Vector2f worldToScreen(float x, float y) {
         float scale_x = (window.getSize().x - 2 * PADDING) / WORLD_SIZE;
         float scale_y = (window.getSize().y - 2 * PADDING) / WORLD_SIZE;
         
         return sf::Vector2f(
             PADDING + x * scale_x,
-            window.getSize().y - PADDING - y * scale_y  // 翻转Y轴
+            window.getSize().y - PADDING - y * scale_y  
         );
     }
     
@@ -252,7 +238,7 @@ private:
         if (data.size() < 4) return;
         
         float x1 = data[0], y1 = data[1], x2 = data[2], y2 = data[3];
-        auto top_left = worldToScreen(x1, y2);  // 注意Y轴翻转
+        auto top_left = worldToScreen(x1, y2);  
         auto bottom_right = worldToScreen(x2, y1);
         
         sf::RectangleShape rect(bottom_right - top_left);
@@ -265,17 +251,12 @@ private:
     }
     
     void drawAllMBRs() {
-        // 使用新的遍历接口获取所有MBR
         auto all_entries = rtree.GetAllEntries();
         
         for (const auto& entry : all_entries) {
             drawMBR(entry.key, MBR_COLOR, false);
-            
-            // 可选：在MBR中心显示value
-            // drawValueText(entry);
         }
     }
-
     
     void drawSearchResults() {
         for (const auto& result : current_search_results) {
@@ -298,25 +279,18 @@ private:
         rect.setOutlineThickness(is_search_result ? 3 : 2);
         
         window.draw(rect);
-        
-        // 为搜索结果显示value
-        if (is_search_result) {
-            // 这里可以添加value文本显示
-        }
     }
     
     void drawStatusInfo() {
+        // 简单的文本状态显示
         sf::Font font;
-        // SFML需要字体文件，这里简单用控制台输出代替
-        // 在实际使用中，你需要提供一个字体文件
+        // 这里可以添加字体加载和文本绘制代码
+        // 由于字体文件可能不存在，这里省略具体实现
         
         std::string status = "操作: " + std::to_string(current_op_index) + "/" + 
                            std::to_string(operations.size()) + 
                            " (按Enter继续, ESC退出)";
-        
-        // 简单的文本渲染（需要字体文件）
-        // 这里先输出到控制台
-        // std::cout << status << std::endl;
+        // 在实际使用时可以添加文本绘制代码
     }
 };
 
